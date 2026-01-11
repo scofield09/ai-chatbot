@@ -9,6 +9,19 @@ export type ChatModel = {
 };
 
 export const chatModels: ChatModel[] = [
+  // deepseek
+  {
+    id: "deepseek/deepseek-r1",
+    name: "Deepseek-r1",
+    provider: "deepseek",
+    description: "DeepSeek 通用对话模型",
+  },
+    {
+    id: "deepseek/deepseek-v3",
+    name: "DeepSeek-v3",
+    provider: "deepseek",
+    description: "DeepSeek 通用对话模型",
+  },
   // Anthropic
   {
     id: "anthropic/claude-haiku-4.5",

@@ -43,6 +43,9 @@ export const maxDuration = 60;
 
 let globalStreamContext: ResumableStreamContext | null = null;
 
+const MAX_MESSAGES = 30; // 最多保留 30 条消息
+const MAX_TOKENS = 8000; // 最多 8000 tokens
+
 export function getStreamContext() {
   if (!globalStreamContext) {
     try {
@@ -107,7 +110,11 @@ export async function POST(request: Request) {
       }
       // Only fetch messages if chat already exists and not tool approval
       if (!isToolApprovalFlow) {
-        messagesFromDb = await getMessagesByChatId({ id });
+        const allMessages = await getMessagesByChatId({ id });
+        // messagesFromDb = await getMessagesByChatId({ id });
+        // 先按消息数量限制
+        let limitedMessages = allMessages.slice(-MAX_MESSAGES);
+        messagesFromDb = limitedMessages;
       }
     } else if (message?.role === "user") {
       // Save chat immediately with placeholder title
@@ -126,6 +133,7 @@ export async function POST(request: Request) {
     const uiMessages = isToolApprovalFlow
       ? (messages as ChatMessage[])
       : [...convertToUIMessages(messagesFromDb), message as ChatMessage];
+    console.log("uiMessages------", JSON.stringify(uiMessages));
 
     const { longitude, latitude, city, country } = geolocation(request);
 

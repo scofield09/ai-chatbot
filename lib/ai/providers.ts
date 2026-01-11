@@ -32,6 +32,14 @@ export function getLanguageModel(modelId: string) {
     return myProvider.languageModel(modelId);
   }
 
+  if (modelId.includes("deepseek")) {
+    // const [provider, model] = modelId.split("/");
+    // if (provider === "deepseek") {
+    //   return gateway.languageModel(model);
+    // }
+    return gateway.languageModel(modelId);
+  }
+
   const isReasoningModel =
     modelId.includes("reasoning") || modelId.endsWith("-thinking");
 
