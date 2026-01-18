@@ -57,6 +57,20 @@
       "when": 1757362773211,
       "tag": "0007_flowery_ben_parker",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1768142614282,
+      "tag": "0008_public_wild_pack",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1768142614283,
+      "tag": "0009_add_vector_indexes",
+      "breakpoints": true
     }
   ]
 }

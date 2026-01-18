@@ -11,6 +11,7 @@ import {
   inArray,
   lt,
   type SQL,
+  sql,
 } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
@@ -23,6 +24,8 @@ import {
   chat,
   type DBMessage,
   document,
+  documentEmbedding,
+  knowledgeBase,
   message,
   type Suggestion,
   stream,
@@ -597,6 +600,204 @@ export async function getStreamIdsByChatId({ chatId }: { chatId: string }) {
     throw new ChatSDKError(
       "bad_request:database",
       "Failed to get stream ids by chat id"
+    );
+  }
+}
+
+export async function saveDocumentEmbeddings({
+  embeddings,
+}: {
+  embeddings: Array<{
+    documentId: string;
+    knowledgeBaseId?: string;
+    chunkIndex: number;
+    content: string;
+    embedding: number[];
+  }>;
+}) {
+  try {
+    // Validate embedding dimensions (should be 1024 for ZhipuAI embedding-3)
+    const expectedDimension = 1024;
+    for (const emb of embeddings) {
+      if (emb.embedding.length !== expectedDimension) {
+        throw new Error(
+          `Invalid embedding dimension: expected ${expectedDimension}, got ${emb.embedding.length}`
+        );
+      }
+    }
+
+    // Use raw SQL to insert vectors properly
+    // Cast to vector(1024) to match ZhipuAI embedding-3 dimensions
+    const values = embeddings.map((emb) => ({
+      id: generateUUID(),
+      documentId: emb.documentId,
+      knowledgeBaseId: emb.knowledgeBaseId ?? null,
+      chunkIndex: emb.chunkIndex,
+      content: emb.content,
+      embedding: sql`${`[${emb.embedding.join(",")}]`}::vector(1024)`,
+      createdAt: new Date(),
+    }));
+
+    return await db.insert(documentEmbedding).values(values);
+  } catch (error) {
+    console.error("Error saving document embeddings:", error);
+    console.error("Error details:", error instanceof Error ? error.stack : error);
+    throw new ChatSDKError(
+      "bad_request:database",
+      `Failed to save document embeddings: ${error instanceof Error ? error.message : "Unknown error"}`
+    );
+  }
+}
+
+export async function deleteDocumentEmbeddings({
+  documentId,
+}: {
+  documentId: string;
+}) {
+  try {
+    return await db
+      .delete(documentEmbedding)
+      .where(eq(documentEmbedding.documentId, documentId));
+  } catch (_error) {
+    throw new ChatSDKError(
+      "bad_request:database",
+      "Failed to delete document embeddings"
+    );
+  }
+}
+
+export async function searchSimilarDocuments({
+  embedding,
+  limit,
+  knowledgeBaseId,
+  similarityThreshold = 0.7,
+  userId,
+}: {
+  embedding: number[];
+  limit: number;
+  knowledgeBaseId?: string;
+  similarityThreshold?: number;
+  userId?: string;
+}) {
+  try {
+    // Validate embedding dimension
+    if (embedding.length !== 1024) {
+      throw new Error(
+        `Invalid embedding dimension: expected 1024, got ${embedding.length}`
+      );
+    }
+
+    const embeddingStr = `[${embedding.join(",")}]`;
+
+    // Build filter conditions (excluding similarity threshold)
+    // These can use regular B-tree indexes
+    const filterConditions: SQL[] = [];
+
+    if (knowledgeBaseId) {
+      filterConditions.push(eq(documentEmbedding.knowledgeBaseId, knowledgeBaseId));
+    }
+
+    // If userId is provided, filter by documents owned by user
+    if (userId) {
+      filterConditions.push(
+        sql`${documentEmbedding.documentId} IN (
+          SELECT id FROM ${document} WHERE ${document.userId} = ${userId}
+        )`
+      );
+    }
+
+    // Optimized query strategy to leverage vector index:
+    // 1. Use vector index for ORDER BY (most efficient - uses IVFFlat/HNSW index)
+    // 2. Fetch more candidates (limit * 3) to account for similarity filtering
+    // 3. Filter by similarity threshold after ordering
+    // This allows PostgreSQL to use the vector index effectively for ordering
+    const candidateLimit = Math.max(limit * 3, 50); // Fetch more candidates, minimum 50
+
+    const candidates = await db
+      .select({
+        id: documentEmbedding.id,
+        documentId: documentEmbedding.documentId,
+        content: documentEmbedding.content,
+        chunkIndex: documentEmbedding.chunkIndex,
+        distance: sql<number>`${documentEmbedding.embedding}::vector <=> ${embeddingStr}::vector(1024)`,
+        documentTitle: sql<string>`(
+          SELECT title FROM ${document} WHERE ${document.id} = ${documentEmbedding.documentId}
+        )`,
+      })
+      .from(documentEmbedding)
+      .where(filterConditions.length > 0 ? and(...filterConditions) : undefined)
+      // Use vector index for ordering (this is where the index is most effective)
+      .orderBy(sql`${documentEmbedding.embedding}::vector <=> ${embeddingStr}::vector(1024)`)
+      .limit(candidateLimit);
+
+    // Convert distance to similarity and filter by threshold
+    // similarity = 1 - distance (for cosine distance)
+    const results = candidates
+      .map((candidate) => ({
+        id: candidate.id,
+        documentId: candidate.documentId,
+        content: candidate.content,
+        chunkIndex: candidate.chunkIndex,
+        similarity: 1 - (candidate.distance ?? 0),
+        documentTitle: candidate.documentTitle,
+      }))
+      .filter((item) => item.similarity >= similarityThreshold)
+      .slice(0, limit);
+
+    return results;
+  } catch (_error) {
+    throw new ChatSDKError(
+      "bad_request:database",
+      "Failed to search similar documents"
+    );
+  }
+}
+
+export async function createKnowledgeBase({
+  userId,
+  name,
+  description,
+}: {
+  userId: string;
+  name: string;
+  description?: string;
+}) {
+  try {
+    const [kb] = await db
+      .insert(knowledgeBase)
+      .values({
+        id: generateUUID(),
+        userId,
+        name,
+        description: description ?? null,
+        createdAt: new Date(),
+      })
+      .returning();
+
+    return kb;
+  } catch (_error) {
+    throw new ChatSDKError(
+      "bad_request:database",
+      "Failed to create knowledge base"
+    );
+  }
+}
+
+export async function getKnowledgeBasesByUserId({
+  userId,
+}: {
+  userId: string;
+}) {
+  try {
+    return await db
+      .select()
+      .from(knowledgeBase)
+      .where(eq(knowledgeBase.userId, userId))
+      .orderBy(desc(knowledgeBase.createdAt));
+  } catch (_error) {
+    throw new ChatSDKError(
+      "bad_request:database",
+      "Failed to get knowledge bases by user id"
     );
   }
 }

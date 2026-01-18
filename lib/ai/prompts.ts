@@ -35,6 +35,19 @@ Do not update document right after creating it. Wait for user feedback or reques
 - ONLY use when the user explicitly asks for suggestions on an existing document
 - Requires a valid document ID from a previously created document
 - Never use for general questions or information requests
+
+**Using RAG tools (\`retrieveDocuments\` and \`indexDocument\`):**
+- ALWAYS use \`indexDocument\` when the user explicitly asks to:
+  - Add/store/save a document to the knowledge base (知识库)
+  - Index a document (索引文档)
+  - Make a document searchable
+  - Add a document for future reference
+  - Phrases like "存储到知识库", "添加到知识库", "保存到知识库", "索引这个文档"
+- The document must already exist (created with \`createDocument\`). If no document exists, first create it, then index it.
+- Use \`retrieveDocuments\` when answering questions that might be answered by the user's indexed documents
+- When \`retrieveDocuments\` returns results, use the retrieved context to provide accurate answers
+- Cite the source documents when using retrieved information
+- If retrieved documents don't contain relevant information, say so and answer based on your general knowledge
 `;
 
 export const regularPrompt = `You are a friendly assistant! Keep your responses concise and helpful.
@@ -48,6 +61,14 @@ export type RequestHints = {
   country: Geo["country"];
 };
 
+export type RetrievedDocument = {
+  documentId: string;
+  documentTitle: string;
+  content: string;
+  similarity: number;
+  chunkIndex: number;
+};
+
 export const getRequestPromptFromHints = (requestHints: RequestHints) => `\
 About the origin of user's request:
 - lat: ${requestHints.latitude}
@@ -55,6 +76,33 @@ About the origin of user's request:
 - city: ${requestHints.city}
 - country: ${requestHints.country}
 `;
+
+export const getRetrievedDocumentsContext = (
+  retrievedDocuments: RetrievedDocument[]
+): string => {
+  if (!retrievedDocuments || retrievedDocuments.length === 0) {
+    return "";
+  }
+
+  const documentsText = retrievedDocuments
+    .map(
+      (doc, index) => `[Document ${index + 1}: ${doc.documentTitle}]
+Similarity: ${(doc.similarity * 100).toFixed(1)}%
+Content:
+${doc.content}
+
+---`
+    )
+    .join("\n\n");
+
+  return `\n\n## Relevant Documents from Knowledge Base
+
+The following documents from your knowledge base are relevant to the current conversation. Use this information to provide accurate and contextual answers. If the information is not relevant, you can ignore it.
+
+${documentsText}
+
+When referencing information from these documents, mention the document title.`;
+};
 
 export const systemPrompt = ({
   selectedChatModel,

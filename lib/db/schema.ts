@@ -2,6 +2,7 @@ import type { InferSelectModel } from "drizzle-orm";
 import {
   boolean,
   foreignKey,
+  integer,
   json,
   pgTable,
   primaryKey,
@@ -10,6 +11,7 @@ import {
   uuid,
   varchar,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 export const user = pgTable("User", {
   id: uuid("id").primaryKey().notNull().defaultRandom(),
@@ -168,3 +170,29 @@ export const stream = pgTable(
 );
 
 export type Stream = InferSelectModel<typeof stream>;
+
+export const knowledgeBase = pgTable("KnowledgeBase", {
+  id: uuid("id").primaryKey().notNull().defaultRandom(),
+  userId: uuid("userId")
+    .notNull()
+    .references(() => user.id),
+  name: text("name").notNull(),
+  description: text("description"),
+  createdAt: timestamp("createdAt").notNull(),
+});
+
+export type KnowledgeBase = InferSelectModel<typeof knowledgeBase>;
+
+export const documentEmbedding = pgTable("DocumentEmbedding", {
+  id: uuid("id").primaryKey().notNull().defaultRandom(),
+  documentId: uuid("documentId")
+    .notNull()
+    .references(() => document.id),
+  knowledgeBaseId: uuid("knowledgeBaseId").references(() => knowledgeBase.id),
+  chunkIndex: integer("chunkIndex").notNull(),
+  content: text("content").notNull(),
+  embedding: text("embedding").notNull(), // Stored as text, cast to vector(1024) in queries (ZhipuAI embedding-2)
+  createdAt: timestamp("createdAt").notNull(),
+});
+
+export type DocumentEmbedding = InferSelectModel<typeof documentEmbedding>;

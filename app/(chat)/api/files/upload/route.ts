@@ -11,10 +11,24 @@ const FileSchema = z.object({
     .refine((file) => file.size <= 5 * 1024 * 1024, {
       message: "File size should be less than 5MB",
     })
-    // Update the file type based on the kind of files you want to accept
-    .refine((file) => ["image/jpeg", "image/png"].includes(file.type), {
-      message: "File type should be JPEG or PNG",
-    }),
+    // Support images, PDF, TXT, and MD files
+    .refine(
+      (file) =>
+        [
+          "image/jpeg",
+          "image/png",
+          "application/pdf",
+          "text/plain",
+          "text/markdown",
+        ].includes(file.type) ||
+        file.type === "" || // Some browsers may not set MIME type correctly
+        file.name.endsWith(".pdf") ||
+        file.name.endsWith(".txt") ||
+        file.name.endsWith(".md"),
+      {
+        message: "File type should be JPEG, PNG, PDF, TXT, or MD",
+      }
+    ),
 });
 
 export async function POST(request: Request) {

@@ -17,10 +17,17 @@ import { entitlementsByUserType } from "@/lib/ai/entitlements";
 import { type RequestHints, systemPrompt } from "@/lib/ai/prompts";
 import { getLanguageModel } from "@/lib/ai/providers";
 import { createDocument } from "@/lib/ai/tools/create-document";
+// import { indexDocument } from "@/lib/ai/tools/index-document";
+import { retrieveDocuments } from "@/lib/ai/tools/retrieve-documents";
 import { getWeather } from "@/lib/ai/tools/get-weather";
 import { requestSuggestions } from "@/lib/ai/tools/request-suggestions";
 import { updateDocument } from "@/lib/ai/tools/update-document";
 import { isProductionEnvironment } from "@/lib/constants";
+import { generateEmbedding } from "@/lib/ai/embeddings";
+import { searchSimilarDocuments } from "@/lib/db/queries";
+import { cleanQueryText } from "@/lib/utils/text-cleaning";
+import { getTextFromMessage } from "@/lib/utils";
+import type { RetrievedDocument } from "@/lib/ai/prompts";
 import {
   createStreamId,
   deleteChatById,
@@ -130,10 +137,9 @@ export async function POST(request: Request) {
     }
 
     // Use all messages for tool approval, otherwise DB messages + new message
-    const uiMessages = isToolApprovalFlow
+    let uiMessages = isToolApprovalFlow
       ? (messages as ChatMessage[])
       : [...convertToUIMessages(messagesFromDb), message as ChatMessage];
-    console.log("uiMessages------", JSON.stringify(uiMessages));
 
     const { longitude, latitude, city, country } = geolocation(request);
 
@@ -160,6 +166,100 @@ export async function POST(request: Request) {
       });
     }
 
+    // Automatically retrieve relevant documents from vector database BEFORE streaming
+    // This avoids blocking the stream response and allows parallel processing
+    let retrievedDocuments: RetrievedDocument[] = [];
+    if (message?.role === "user" && session.user?.id && !isToolApprovalFlow) {
+      try {
+        const userMessageText = getTextFromMessage(message);
+        console.log(userMessageText, 'userMessageText------------')
+        if (userMessageText && userMessageText.trim().length > 0) {
+          // Clean and generate embedding for the query
+          const cleanedQuery = cleanQueryText(userMessageText);
+          
+          if (cleanedQuery && cleanedQuery.trim().length > 0) {
+            const queryEmbedding = await generateEmbedding(cleanedQuery);
+            console.log(queryEmbedding, 'queryEmbedding------------')
+            // Search for similar documents
+            const queryLength = cleanedQuery.length;
+            const dynamicThreshold = queryLength < 10 
+              ? 0.5  // 短查询使用更低的阈值
+              : 0.7; // 长查询使用正常阈值
+
+            const searchResults = await searchSimilarDocuments({
+              embedding: queryEmbedding,
+              limit: 5, // Retrieve top 5 most relevant documents
+              knowledgeBaseId: undefined,
+              similarityThreshold: dynamicThreshold,
+              userId: session.user.id,
+            });
+
+            console.log(searchResults, 'searchResults------------')
+
+            retrievedDocuments = searchResults.map((result) => ({
+              documentId: result.documentId,
+              documentTitle: result.documentTitle,
+              content: result.content,
+              similarity: result.similarity,
+              chunkIndex: result.chunkIndex,
+            }));
+
+            console.log(retrievedDocuments, 'retrievedDocuments------------')
+
+            if (retrievedDocuments.length > 0) {
+              console.log(
+                `Retrieved ${retrievedDocuments.length} relevant documents for query`
+              );
+              
+              // Filter and sort documents by similarity (only include high-quality matches)
+              const highQualityDocs = retrievedDocuments
+                .filter((doc) => doc.similarity >= 0.6)
+                .sort((a, b) => b.similarity - a.similarity);
+
+              if (highQualityDocs.length > 0) {
+                // Format retrieved documents as a message and add to uiMessages
+                // Use compact format to save tokens while maintaining clarity
+                const documentsText = highQualityDocs
+                  .map(
+                    (doc, index) => `📄 **${doc.documentTitle}** (${(doc.similarity * 100).toFixed(0)}% relevant)
+${doc.content}`
+                  )
+                  .join("\n\n---\n\n");
+
+                const documentsMessage: ChatMessage = {
+                  id: generateUUID(),
+                  role: "user",
+                  parts: [
+                    {
+                      type: "text",
+                      text: `**Knowledge Base Context** (${highQualityDocs.length} relevant document${highQualityDocs.length > 1 ? 's' : ''}):
+
+${documentsText}
+
+*Use information from these documents to answer the user's question. Cite the document title when referencing specific information.*`,
+                    },
+                  ],
+                };
+
+                // Insert documents message before the user's current message
+                uiMessages = [
+                  ...uiMessages.slice(0, -1),
+                  documentsMessage,
+                  uiMessages[uiMessages.length - 1],
+                ];
+              }
+            }
+          }
+        }
+      } catch (error) {
+        // Log error but don't fail the request - continue without retrieved documents
+        console.error("Error retrieving documents:", error);
+      }
+    }
+    console.log(JSON.stringify(uiMessages), 'uiMessages------------');
+
+    console.log(uiMessages, 'uiMessages------------no json');
+
     const streamId = generateUUID();
     await createStreamId({ streamId, chatId: id });
 
@@ -181,7 +281,10 @@ export async function POST(request: Request) {
 
         const result = streamText({
           model: getLanguageModel(selectedChatModel),
-          system: systemPrompt({ selectedChatModel, requestHints }),
+          system: systemPrompt({
+            selectedChatModel,
+            requestHints,
+          }),
           messages: await convertToModelMessages(uiMessages),
           stopWhen: stepCountIs(5),
           experimental_activeTools: isReasoningModel
@@ -191,6 +294,8 @@ export async function POST(request: Request) {
                 "createDocument",
                 "updateDocument",
                 "requestSuggestions",
+                // "retrieveDocuments",
+                // "indexDocument",
               ],
           experimental_transform: isReasoningModel
             ? undefined
@@ -210,6 +315,8 @@ export async function POST(request: Request) {
               session,
               dataStream,
             }),
+            // retrieveDocuments: retrieveDocuments({ session }),
+            // indexDocument: indexDocument({ session, dataStream }),
           },
           experimental_telemetry: {
             isEnabled: isProductionEnvironment,

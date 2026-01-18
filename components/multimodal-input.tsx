@@ -210,6 +210,45 @@ function PureMultimodalInput({
     }
   }, []);
 
+  const uploadDocument = useCallback(async (file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const response = await fetch("/api/documents/upload", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const { documentId, title, chunksIndexed, message, warning } = data;
+
+        if (warning) {
+          toast.warning(warning);
+        } else {
+          toast.success(
+            message ||
+              `Document "${title}" uploaded and indexed successfully (${chunksIndexed} chunks)`
+          );
+        }
+
+        return {
+          success: true,
+          documentId,
+          title,
+          chunksIndexed,
+        };
+      }
+      const { error } = await response.json();
+      toast.error(error || "Failed to upload document");
+      return { success: false };
+    } catch (_error) {
+      toast.error("Failed to upload document, please try again!");
+      return { success: false };
+    }
+  }, []);
+
   const handleFileChange = useCallback(
     async (event: ChangeEvent<HTMLInputElement>) => {
       const files = Array.from(event.target.files || []);
@@ -217,11 +256,29 @@ function PureMultimodalInput({
       setUploadQueue(files.map((file) => file.name));
 
       try {
-        const uploadPromises = files.map((file) => uploadFile(file));
-        const uploadedAttachments = await Promise.all(uploadPromises);
-        const successfullyUploadedAttachments = uploadedAttachments.filter(
-          (attachment) => attachment !== undefined
-        );
+        const uploadPromises = files.map(async (file) => {
+          // Check if file is a document type (PDF, TXT, MD)
+          const isDocument =
+            file.type === "application/pdf" ||
+            file.type === "text/plain" ||
+            file.type === "text/markdown" ||
+            file.name.endsWith(".pdf") ||
+            file.name.endsWith(".txt") ||
+            file.name.endsWith(".md");
+
+          if (isDocument) {
+            // Upload as document and index to vector database
+            return await uploadDocument(file);
+          } else {
+            // Upload as regular attachment (images, etc.)
+            return await uploadFile(file);
+          }
+        });
+
+        const uploadedResults = await Promise.all(uploadPromises);
+        const successfullyUploadedAttachments = uploadedResults.filter(
+          (result) => result !== undefined && "url" in result
+        ) as Attachment[];
 
         setAttachments((currentAttachments) => [
           ...currentAttachments,
@@ -233,7 +290,7 @@ function PureMultimodalInput({
         setUploadQueue([]);
       }
     },
-    [setAttachments, uploadFile]
+    [setAttachments, uploadFile, uploadDocument]
   );
 
   const handlePaste = useCallback(
@@ -308,6 +365,7 @@ function PureMultimodalInput({
         )}
 
       <input
+        accept="image/jpeg,image/png,application/pdf,.pdf,.txt,.md,text/plain,text/markdown"
         className="-top-4 -left-4 pointer-events-none fixed size-0.5 opacity-0"
         multiple
         onChange={handleFileChange}
