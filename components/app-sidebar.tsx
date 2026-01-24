@@ -3,11 +3,11 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { User } from "next-auth";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { useSWRConfig } from "swr";
 import { unstable_serialize } from "swr/infinite";
-import { PlusIcon, TrashIcon } from "@/components/icons";
+import { MessageIcon, PlusIcon, TrashIcon, UploadIcon } from "@/components/icons";
 import {
   getChatHistoryPaginationKey,
   SidebarHistory,
@@ -39,6 +39,8 @@ export function AppSidebar({ user }: { user: User | undefined }) {
   const { setOpenMobile } = useSidebar();
   const { mutate } = useSWRConfig();
   const [showDeleteAllDialog, setShowDeleteAllDialog] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleDeleteAll = () => {
     const deletePromise = fetch("/api/history", {
@@ -55,6 +57,70 @@ export function AppSidebar({ user }: { user: User | undefined }) {
         return "All chats deleted successfully";
       },
       error: "Failed to delete all chats",
+    });
+  };
+
+  const handleFileSelect = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileUpload = async (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // 验证文件类型
+    const validTypes = ["application/pdf", "text/plain", "text/markdown"];
+    const validExtensions = [".pdf", ".txt", ".md"];
+    const isValidType =
+      validTypes.includes(file.type) ||
+      validExtensions.some((ext) => file.name.toLowerCase().endsWith(ext));
+
+    if (!isValidType) {
+      toast.error("只支持 PDF、TXT 或 MD 格式的文件");
+      event.target.value = "";
+      return;
+    }
+
+    // 验证文件大小（5MB）
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("文件大小不能超过 5MB");
+      event.target.value = "";
+      return;
+    }
+
+    setIsUploading(true);
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const uploadPromise = fetch("/api/documents/upload", {
+      method: "POST",
+      body: formData,
+    }).then(async (response) => {
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "上传失败");
+      }
+      return response.json();
+    });
+
+    toast.promise(uploadPromise, {
+      loading: `正在上传 "${file.name}"...`,
+      success: (data) => {
+        setIsUploading(false);
+        event.target.value = "";
+        return (
+          data.message ||
+          `成功上传并索引了 ${data.chunksIndexed} 个文本块`
+        );
+      },
+      error: (error) => {
+        setIsUploading(false);
+        event.target.value = "";
+        return error.message || "上传失败";
+      },
     });
   };
 
@@ -93,7 +159,7 @@ export function AppSidebar({ user }: { user: User | undefined }) {
                     </TooltipContent>
                   </Tooltip>
                 )}
-                <Tooltip>
+                {/* <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
                       className="h-8 p-1 md:h-fit md:p-2"
@@ -111,12 +177,44 @@ export function AppSidebar({ user }: { user: User | undefined }) {
                   <TooltipContent align="end" className="hidden md:block">
                     New Chat
                   </TooltipContent>
-                </Tooltip>
+                </Tooltip> */}
               </div>
             </div>
           </SidebarMenu>
         </SidebarHeader>
         <SidebarContent>
+          <div className="flex flex-col gap-2 p-4">
+            <Button
+              className="flex w-full items-center justify-center gap-2"
+              onClick={() => {
+                setOpenMobile(false);
+                router.push("/");
+                router.refresh();
+              }}
+              type="button"
+              variant="outline"
+            >
+              <MessageIcon size={16} />
+              <span>新建对话</span>
+            </Button>
+            <Button
+              className="flex w-full items-center justify-center gap-2"
+              disabled={isUploading}
+              onClick={handleFileSelect}
+              type="button"
+              variant="outline"
+            >
+              <UploadIcon size={16} />
+              <span>{isUploading ? "上传中..." : "上传知识库"}</span>
+            </Button>
+            <input
+              accept=".pdf,.txt,.md"
+              className="hidden"
+              onChange={handleFileUpload}
+              ref={fileInputRef}
+              type="file"
+            />
+          </div>
           <SidebarHistory user={user} />
         </SidebarContent>
         <SidebarFooter>{user && <SidebarUserNav user={user} />}</SidebarFooter>

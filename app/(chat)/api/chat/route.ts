@@ -20,11 +20,6 @@ import { getWeather } from "@/lib/ai/tools/get-weather";
 import { requestSuggestions } from "@/lib/ai/tools/request-suggestions";
 import { updateDocument } from "@/lib/ai/tools/update-document";
 import { isProductionEnvironment } from "@/lib/constants";
-import { generateEmbedding } from "@/lib/ai/embeddings";
-import { searchSimilarDocuments } from "@/lib/db/queries";
-import { cleanQueryText } from "@/lib/utils/text-cleaning";
-import { getTextFromMessage } from "@/lib/utils";
-import type { RetrievedDocument } from "@/lib/ai/prompts";
 import {
   createStreamId,
   deleteChatById,
@@ -41,9 +36,11 @@ import { ChatSDKError } from "@/lib/errors";
 import type { ChatMessage } from "@/lib/types";
 import { convertToUIMessages, generateUUID } from "@/lib/utils";
 import { generateTitleFromUserMessage } from "../../actions";
+import { retrieveRelevantContext } from "./retrieve-context";
 import { type PostRequestBody, postRequestBodySchema } from "./schema";
 
 export const maxDuration = 60;
+export const MAX_MESSAGES = 10;
 
 function getStreamContext() {
   try {
@@ -113,7 +110,7 @@ export async function POST(request: Request) {
       titlePromise = generateTitleFromUserMessage({ message });
     }
 
-    const uiMessages = isToolApprovalFlow
+    let uiMessages = isToolApprovalFlow
       ? (messages as ChatMessage[])
       : [...convertToUIMessages(messagesFromDb), message as ChatMessage];
 
@@ -141,6 +138,21 @@ export async function POST(request: Request) {
       });
     }
 
+    // 自动从向量数据库检索相关文档（RAG）
+    const { updatedMessages, retrievedDocuments } =
+      await retrieveRelevantContext({
+        message,
+        uiMessages,
+        userId: session.user?.id,
+        isToolApprovalFlow,
+      });
+
+    // 使用包含检索到的文档上下文的消息
+    uiMessages = updatedMessages;
+
+    console.log(uiMessages, updatedMessages, 'uiMessages------------');
+    console.log(JSON.stringify(uiMessages), 'uiMessages------------');
+
     const isReasoningModel =
       selectedChatModel.includes("reasoning") ||
       selectedChatModel.includes("thinking");
@@ -150,6 +162,7 @@ export async function POST(request: Request) {
     const stream = createUIMessageStream({
       originalMessages: isToolApprovalFlow ? uiMessages : undefined,
       execute: async ({ writer: dataStream }) => {
+        console.log(requestHints, 'requestHints------------')
         const result = streamText({
           model: getLanguageModel(selectedChatModel),
           system: systemPrompt({ selectedChatModel, requestHints }),
@@ -159,8 +172,8 @@ export async function POST(request: Request) {
             ? []
             : [
                 "getWeather",
-                "createDocument",
-                "updateDocument",
+                // "createDocument",
+                // "updateDocument",
                 "requestSuggestions",
                 // "retrieveDocuments",
                 // "indexDocument",
@@ -174,8 +187,8 @@ export async function POST(request: Request) {
             : undefined,
           tools: {
             getWeather,
-            createDocument: createDocument({ session, dataStream }),
-            updateDocument: updateDocument({ session, dataStream }),
+            // createDocument: createDocument({ session, dataStream }),
+            // updateDocument: updateDocument({ session, dataStream }),
             requestSuggestions: requestSuggestions({ session, dataStream }),
           },
           experimental_telemetry: {

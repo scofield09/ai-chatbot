@@ -613,6 +613,8 @@ export async function saveDocumentEmbeddings({
     chunkIndex: number;
     content: string;
     embedding: number[];
+    documentTitle?: string;
+    userId?: string;
   }>;
 }) {
   try {
@@ -636,6 +638,8 @@ export async function saveDocumentEmbeddings({
       content: emb.content,
       embedding: sql`${`[${emb.embedding.join(",")}]`}::vector(1024)`,
       createdAt: new Date(),
+      documentTitle: emb.documentTitle ?? null,
+      userId: emb.userId ?? null,
     }));
 
     return await db.insert(documentEmbedding).values(values);
@@ -689,29 +693,9 @@ export async function searchSimilarDocuments({
 
     const embeddingStr = `[${embedding.join(",")}]`;
 
-    // Build filter conditions (excluding similarity threshold)
-    // These can use regular B-tree indexes
-    const filterConditions: SQL[] = [];
-
-    if (knowledgeBaseId) {
-      filterConditions.push(eq(documentEmbedding.knowledgeBaseId, knowledgeBaseId));
-    }
-
-    // If userId is provided, filter by documents owned by user
-    if (userId) {
-      filterConditions.push(
-        sql`${documentEmbedding.documentId} IN (
-          SELECT id FROM ${document} WHERE ${document.userId} = ${userId}
-        )`
-      );
-    }
-
-    // Optimized query strategy to leverage vector index:
-    // 1. Use vector index for ORDER BY (most efficient - uses IVFFlat/HNSW index)
-    // 2. Fetch more candidates (limit * 3) to account for similarity filtering
-    // 3. Filter by similarity threshold after ordering
-    // This allows PostgreSQL to use the vector index effectively for ordering
-    const candidateLimit = Math.max(limit * 3, 50); // Fetch more candidates, minimum 50
+    // Pure vector similarity search - only calculate distance
+    // No filters to maximize vector index efficiency
+    const candidateLimit = Math.max(limit * 3, 50);
 
     const candidates = await db
       .select({
@@ -720,12 +704,10 @@ export async function searchSimilarDocuments({
         content: documentEmbedding.content,
         chunkIndex: documentEmbedding.chunkIndex,
         distance: sql<number>`${documentEmbedding.embedding}::vector <=> ${embeddingStr}::vector(1024)`,
-        documentTitle: sql<string>`(
-          SELECT title FROM ${document} WHERE ${document.id} = ${documentEmbedding.documentId}
-        )`,
+        documentTitle: documentEmbedding.documentTitle,
+        userId: documentEmbedding.userId,
       })
       .from(documentEmbedding)
-      .where(filterConditions.length > 0 ? and(...filterConditions) : undefined)
       // Use vector index for ordering (this is where the index is most effective)
       .orderBy(sql`${documentEmbedding.embedding}::vector <=> ${embeddingStr}::vector(1024)`)
       .limit(candidateLimit);
@@ -740,15 +722,17 @@ export async function searchSimilarDocuments({
         chunkIndex: candidate.chunkIndex,
         similarity: 1 - (candidate.distance ?? 0),
         documentTitle: candidate.documentTitle,
+        userId: candidate.userId,
       }))
       .filter((item) => item.similarity >= similarityThreshold)
       .slice(0, limit);
 
     return results;
-  } catch (_error) {
+  } catch (error) {
+    console.error("❌ Vector search error:", error);
     throw new ChatSDKError(
       "bad_request:database",
-      "Failed to search similar documents"
+      `Failed to search similar documents: ${error instanceof Error ? error.message : "Unknown error"}`
     );
   }
 }

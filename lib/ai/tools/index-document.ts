@@ -102,6 +102,8 @@ export const indexDocument = ({
             chunkIndex: index,
             content: chunk.text,
             embedding: embeddings[index],
+            documentTitle: document.title,
+            userId: document.userId,
           })),
         });
 

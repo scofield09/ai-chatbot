@@ -193,6 +193,9 @@ export const documentEmbedding = pgTable("DocumentEmbedding", {
   content: text("content").notNull(),
   embedding: text("embedding").notNull(), // Stored as text, cast to vector(1024) in queries (ZhipuAI embedding-2)
   createdAt: timestamp("createdAt").notNull(),
+  // Denormalized fields for faster queries without JOINs
+  documentTitle: text("documentTitle"),
+  userId: uuid("userId").references(() => user.id),
 });
 
 export type DocumentEmbedding = InferSelectModel<typeof documentEmbedding>;

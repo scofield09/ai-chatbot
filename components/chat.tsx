@@ -104,6 +104,7 @@ export function Chat({
     },
     transport: new DefaultChatTransport({
       api: "/api/chat",
+      // api: "http://localhost:7000/sse",
       fetch: fetchWithErrorHandlers,
       prepareSendMessagesRequest(request) {
         const lastMessage = request.messages.at(-1);

@@ -104,21 +104,21 @@ export async function POST(request: Request) {
     const documentId = generateUUID();
     const documentTitle = filename.replace(/\.[^/.]+$/, ""); // Remove extension
 
-    try {
-      await saveDocument({
-        id: documentId,
-        title: documentTitle,
-        kind: "text",
-        content: text,
-        userId: session.user.id,
-      });
-    } catch (error) {
-      console.error("Failed to save document:", error);
-      return NextResponse.json(
-        { error: "Failed to save document" },
-        { status: 500 }
-      );
-    }
+    // try {
+    //   await saveDocument({
+    //     id: documentId,
+    //     title: documentTitle,
+    //     kind: "text",
+    //     content: text,
+    //     userId: session.user.id,
+    //   });
+    // } catch (error) {
+    //   console.error("Failed to save document:", error);
+    //   return NextResponse.json(
+    //     { error: "Failed to save document" },
+    //     { status: 500 }
+    //   );
+    // }
 
     // Automatically index the document
     try {
@@ -185,6 +185,8 @@ export async function POST(request: Request) {
           chunkIndex: index,
           content: chunk.text,
           embedding: embeddings[index],
+          documentTitle, // 添加文档标题
+          userId: session.user.id, // 添加用户ID
         })),
       });
       console.log(`Successfully indexed document: ${documentId}`);
