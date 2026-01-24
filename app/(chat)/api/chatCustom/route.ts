@@ -14,12 +14,6 @@ import { auth, type UserType } from "@/app/(auth)/auth";
 import { entitlementsByUserType } from "@/lib/ai/entitlements";
 import { type RequestHints, systemPrompt } from "@/lib/ai/prompts";
 import { getLanguageModel } from "@/lib/ai/providers";
-import { createDocument } from "@/lib/ai/tools/create-document";
-// import { indexDocument } from "@/lib/ai/tools/index-document";
-import { retrieveDocuments } from "@/lib/ai/tools/retrieve-documents";
-import { getWeather } from "@/lib/ai/tools/get-weather";
-import { requestSuggestions } from "@/lib/ai/tools/request-suggestions";
-import { updateDocument } from "@/lib/ai/tools/update-document";
 import { isProductionEnvironment } from "@/lib/constants";
 import { generateEmbedding } from "@/lib/ai/embeddings";
 import { searchSimilarDocuments } from "@/lib/db/queries";
@@ -166,100 +160,112 @@ export async function POST(request: Request) {
 
     // Automatically retrieve relevant documents from vector database BEFORE streaming
     // This avoids blocking the stream response and allows parallel processing
-    let retrievedDocuments: RetrievedDocument[] = [];
-    if (message?.role === "user" && session.user?.id && !isToolApprovalFlow) {
-      try {
-        const userMessageText = getTextFromMessage(message);
-        console.log(userMessageText, 'userMessageText------------')
-        if (userMessageText && userMessageText.trim().length > 0) {
-          // Clean and generate embedding for the query
-          const cleanedQuery = cleanQueryText(userMessageText);
+//     let retrievedDocuments: RetrievedDocument[] = [];
+//     if (message?.role === "user" && session.user?.id && !isToolApprovalFlow) {
+//       try {
+//         const userMessageText = getTextFromMessage(message);
+//         console.log(userMessageText, 'userMessageText------------')
+//         if (userMessageText && userMessageText.trim().length > 0) {
+//           // Clean and generate embedding for the query
+//           const cleanedQuery = cleanQueryText(userMessageText);
           
-          if (cleanedQuery && cleanedQuery.trim().length > 0) {
-            const queryEmbedding = await generateEmbedding(cleanedQuery);
-            console.log(queryEmbedding, 'queryEmbedding------------')
-            // Search for similar documents
-            const queryLength = cleanedQuery.length;
-            const dynamicThreshold = queryLength < 10 
-              ? 0.5  // 短查询使用更低的阈值
-              : 0.7; // 长查询使用正常阈值
+//           if (cleanedQuery && cleanedQuery.trim().length > 0) {
+//             const queryEmbedding = await generateEmbedding(cleanedQuery);
+//             console.log(queryEmbedding, 'queryEmbedding------------')
+//             // Search for similar documents
+//             const queryLength = cleanedQuery.length;
+//             const dynamicThreshold = queryLength < 10 
+//               ? 0.5  // 短查询使用更低的阈值
+//               : 0.7; // 长查询使用正常阈值
 
-            const searchResults = await searchSimilarDocuments({
-              embedding: queryEmbedding,
-              limit: 5, // Retrieve top 5 most relevant documents
-              knowledgeBaseId: undefined,
-              similarityThreshold: dynamicThreshold,
-              userId: session.user.id,
-            });
+//             const searchResults = await searchSimilarDocuments({
+//               embedding: queryEmbedding,
+//               limit: 5, // Retrieve top 5 most relevant documents
+//               knowledgeBaseId: undefined,
+//               similarityThreshold: dynamicThreshold,
+//               userId: session.user.id,
+//             });
 
-            console.log(searchResults, 'searchResults------------')
+//             console.log(searchResults, 'searchResults------------')
 
-            retrievedDocuments = searchResults.map((result) => ({
-              documentId: result.documentId,
-              documentTitle: result.documentTitle,
-              content: result.content,
-              similarity: result.similarity,
-              chunkIndex: result.chunkIndex,
-            }));
+//             retrievedDocuments = searchResults.map((result) => ({
+//               documentId: result.documentId,
+//               documentTitle: result.documentTitle,
+//               content: result.content,
+//               similarity: result.similarity,
+//               chunkIndex: result.chunkIndex,
+//             }));
 
-            console.log(retrievedDocuments, 'retrievedDocuments------------')
+//             console.log(retrievedDocuments, 'retrievedDocuments------------')
 
-            if (retrievedDocuments.length > 0) {
-              console.log(
-                `Retrieved ${retrievedDocuments.length} relevant documents for query`
-              );
+//             if (retrievedDocuments.length > 0) {
+//               console.log(
+//                 `Retrieved ${retrievedDocuments.length} relevant documents for query`
+//               );
               
-              // Filter and sort documents by similarity (only include high-quality matches)
-              const highQualityDocs = retrievedDocuments
-                .filter((doc) => doc.similarity >= 0.6)
-                .sort((a, b) => b.similarity - a.similarity);
+//               // Filter and sort documents by similarity (only include high-quality matches)
+//               const highQualityDocs = retrievedDocuments
+//                 .filter((doc) => doc.similarity >= 0.6)
+//                 .sort((a, b) => b.similarity - a.similarity);
 
-              if (highQualityDocs.length > 0) {
-                // Format retrieved documents as a message and add to uiMessages
-                // Use compact format to save tokens while maintaining clarity
-                const documentsText = highQualityDocs
-                  .map(
-                    (doc, index) => `📄 **${doc.documentTitle}** (${(doc.similarity * 100).toFixed(0)}% relevant)
-${doc.content}`
-                  )
-                  .join("\n\n---\n\n");
+//               if (highQualityDocs.length > 0) {
+//                 // Format retrieved documents as a message and add to uiMessages
+//                 // Use compact format to save tokens while maintaining clarity
+//                 const documentsText = highQualityDocs
+//                   .map(
+//                     (doc, index) => `📄 **${doc.documentTitle}** (${(doc.similarity * 100).toFixed(0)}% relevant)
+// ${doc.content}`
+//                   )
+//                   .join("\n\n---\n\n");
 
-                const documentsMessage: ChatMessage = {
-                  id: generateUUID(),
-                  role: "user",
-                  parts: [
-                    {
-                      type: "text",
-                      text: `**Knowledge Base Context** (${highQualityDocs.length} relevant document${highQualityDocs.length > 1 ? 's' : ''}):
+//                 const documentsMessage: ChatMessage = {
+//                   id: generateUUID(),
+//                   role: "user",
+//                   parts: [
+//                     {
+//                       type: "text",
+//                       text: `**Knowledge Base Context** (${highQualityDocs.length} relevant document${highQualityDocs.length > 1 ? 's' : ''}):
 
-${documentsText}
+// ${documentsText}
 
-*Use information from these documents to answer the user's question. Cite the document title when referencing specific information.*`,
-                    },
-                  ],
-                };
+// *Use information from these documents to answer the user's question. Cite the document title when referencing specific information.*`,
+//                     },
+//                   ],
+//                 };
 
-                // Insert documents message before the user's current message
-                // uiMessages = [
-                //   ...uiMessages.slice(0, -1),
-                //   documentsMessage,
-                //   uiMessages[uiMessages.length - 1],
-                // ];
-              }
-            }
-          }
-        }
-      } catch (error) {
-        // Log error but don't fail the request - continue without retrieved documents
-        console.error("Error retrieving documents:", error);
-      }
-    }
+//                 // Insert documents message before the user's current message
+//                 // uiMessages = [
+//                 //   ...uiMessages.slice(0, -1),
+//                 //   documentsMessage,
+//                 //   uiMessages[uiMessages.length - 1],
+//                 // ];
+//               }
+//             }
+//           }
+//         }
+//       } catch (error) {
+//         // Log error but don't fail the request - continue without retrieved documents
+//         console.error("Error retrieving documents:", error);
+//       }
+//     }
     console.log(JSON.stringify(uiMessages), 'uiMessages------------');
 
     console.log(uiMessages, 'uiMessages------------no json');
 
     const streamId = generateUUID();
     await createStreamId({ streamId, chatId: id });
+
+    // 如果需要生成标题，在流开始前就完成
+    // 这样标题总是第一个发送的事件，避免与消息流混淆
+    let generatedTitle: string | null = null;
+    if (titlePromise) {
+      try {
+        generatedTitle = await titlePromise;
+        await updateChatTitleById({ chatId: id, title: generatedTitle });
+      } catch (error) {
+        console.error("Failed to generate title:", error);
+      }
+    }
 
     // 自定义流式渲染实现
     const encoder = new TextEncoder();
@@ -271,17 +277,14 @@ ${documentsText}
     const stream = new ReadableStream({
       async start(controller) {
         try {
-          // 处理标题生成
-          if (titlePromise) {
-            titlePromise.then((title) => {
-              updateChatTitleById({ chatId: id, title });
-              const data = JSON.stringify({
-                type: "data-chat-title",
-                data: title,
-              });
-              controller.enqueue(encoder.encode(`data: ${data}\n\n`));
-            });
-          }
+          // 如果标题已生成，立即发送作为第一个事件
+        //   if (generatedTitle) {
+        //     const data = JSON.stringify({
+        //       type: "data-chat-title",
+        //       data: generatedTitle,
+        //     });
+        //     controller.enqueue(encoder.encode(`data: ${data}\n\n`));
+        //   }
 
           const isReasoningModel =
             selectedChatModel.includes("reasoning") ||
@@ -295,14 +298,6 @@ ${documentsText}
             }),
             messages: await convertToModelMessages(uiMessages),
             stopWhen: stepCountIs(5),
-            experimental_activeTools: isReasoningModel
-              ? []
-              : [
-                  "getWeather",
-                  "createDocument",
-                  "updateDocument",
-                  "requestSuggestions",
-                ],
             experimental_transform: isReasoningModel
               ? undefined
               : smoothStream({ chunking: "word" }),
@@ -313,43 +308,13 @@ ${documentsText}
                   },
                 }
               : undefined,
-            tools: {
-              getWeather,
-              createDocument: createDocument({
-                session,
-                dataStream: {
-                  write: (part: any) => {
-                    const data = JSON.stringify(part);
-                    controller.enqueue(encoder.encode(`data: ${data}\n\n`));
-                  },
-                } as any,
-              }),
-              updateDocument: updateDocument({
-                session,
-                dataStream: {
-                  write: (part: any) => {
-                    const data = JSON.stringify(part);
-                    controller.enqueue(encoder.encode(`data: ${data}\n\n`));
-                  },
-                } as any,
-              }),
-              requestSuggestions: requestSuggestions({
-                session,
-                dataStream: {
-                  write: (part: any) => {
-                    const data = JSON.stringify(part);
-                    controller.enqueue(encoder.encode(`data: ${data}\n\n`));
-                  },
-                } as any,
-              }),
-            },
             experimental_telemetry: {
               isEnabled: isProductionEnvironment,
               functionId: "stream-text",
             },
           });
 
-          // 手动处理流数据
+          // 手动处理流数据 - 发送完整消息更新
           let reasoningText = "";
           let isReasoningActive = false;
 
@@ -366,19 +331,12 @@ ${documentsText}
                 console.log('[DEBUG] Created new message ID:', currentMessageId);
               }
 
-              // 构建消息，包含推理和文本
+              // 发送完整消息（带 transient 标志）用于实时显示
               const parts: ChatMessage["parts"] = [];
-              
               if (reasoningText) {
-                parts.push({
-                  type: "reasoning",
-                  text: reasoningText,
-                } as any);
+                parts.push({ type: "reasoning", text: reasoningText } as any);
               }
-
-              if (currentText) {
-                parts.push({ type: "text", text: currentText });
-              }
+              parts.push({ type: "text", text: currentText });
 
               const message: ChatMessage = {
                 id: currentMessageId,
@@ -391,11 +349,14 @@ ${documentsText}
                 data: JSON.stringify(message),
                 transient: true,
               });
-              console.log('[DEBUG] Sending transient message, text length:', currentText.length);
               controller.enqueue(encoder.encode(`data: ${data}\n\n`));
             } else if (type === "reasoning-start") {
               isReasoningActive = true;
               reasoningText = "";
+              
+              if (!currentMessageId) {
+                currentMessageId = generateUUID();
+              }
             } else if (type === "reasoning-delta") {
               const reasoningDelta = delta as {
                 type: "reasoning-delta";
@@ -406,260 +367,55 @@ ${documentsText}
               if (!currentMessageId) {
                 currentMessageId = generateUUID();
               }
-
-              const parts: ChatMessage["parts"] = [];
-              
-              if (reasoningText) {
-                parts.push({
-                  type: "reasoning",
-                  text: reasoningText,
-                } as any);
-              }
-
-              if (currentText) {
-                parts.push({ type: "text", text: currentText });
-              }
-
-              const message: ChatMessage = {
-                id: currentMessageId,
-                role: "assistant",
-                parts,
-              };
-
-              const data = JSON.stringify({
-                type: "data-appendMessage",
-                data: JSON.stringify(message),
-                transient: true,
-              });
-              controller.enqueue(encoder.encode(`data: ${data}\n\n`));
             } else if (type === "reasoning-end") {
               isReasoningActive = false;
-            } else if (type === "tool-call") {
-              const toolCall = delta as any;
-              const { toolCallId, toolName, input } = toolCall;
-
-              if (!currentMessageId) {
-                currentMessageId = generateUUID();
-              }
-
-              // 查找或创建消息
-              let message = finishedMessages.find((m) => m.id === currentMessageId);
-              if (!message) {
-                const parts: ChatMessage["parts"] = [];
-                
-                if (reasoningText) {
-                  parts.push({
-                    type: "reasoning",
-                    text: reasoningText,
-                  } as any);
-                }
-
-                if (currentText) {
-                  parts.push({ type: "text", text: currentText });
-                }
-
-                message = {
-                  id: currentMessageId,
-                  role: "assistant",
-                  parts,
-                };
-                finishedMessages.push(message);
-              }
-
-              // 添加工具调用部分 - 使用正确的工具类型格式
-              const toolPartType = `tool-${toolName}` as any;
-              const toolPart = {
-                type: toolPartType,
-                toolCallId,
-                input,
-                state: "partial-call",
-              };
-
-              // 移除旧的工具调用部分（如果有）
-              message.parts = message.parts.filter(
-                (p) => !(p.type === toolPartType && (p as any).toolCallId === toolCallId)
-              );
-              message.parts.push(toolPart as any);
-
-              const data = JSON.stringify({
-                type: "data-appendMessage",
-                data: JSON.stringify(message),
-                transient: true,
-              });
-              controller.enqueue(encoder.encode(`data: ${data}\n\n`));
-            } else if (type === "tool-result") {
-              const toolResult = delta as any;
-              const { toolCallId, toolName, result } = toolResult;
-
-              let message = finishedMessages.find((m) => m.id === currentMessageId);
-              if (!message && currentMessageId) {
-                const parts: ChatMessage["parts"] = [];
-                
-                if (reasoningText) {
-                  parts.push({
-                    type: "reasoning",
-                    text: reasoningText,
-                  } as any);
-                }
-
-                if (currentText) {
-                  parts.push({ type: "text", text: currentText });
-                }
-
-                message = {
-                  id: currentMessageId,
-                  role: "assistant",
-                  parts,
-                };
-                finishedMessages.push(message);
-              }
-
-              if (message) {
-                const toolPartType = `tool-${toolName}` as any;
-                // 更新工具调用为完成状态
-                const toolPartIndex = message.parts.findIndex(
-                  (p) => p.type === toolPartType && (p as any).toolCallId === toolCallId
-                );
-
-                if (toolPartIndex !== -1) {
-                  const toolPart = message.parts[toolPartIndex] as any;
-                  toolPart.state = "result";
-                  toolPart.output = result;
-                } else {
-                  // 如果找不到，添加新的工具结果部分
-                  message.parts.push({
-                    type: toolPartType,
-                    toolCallId,
-                    output: result,
-                  } as any);
-                }
-
-                const data = JSON.stringify({
-                  type: "data-appendMessage",
-                  data: JSON.stringify(message),
-                  transient: true,
-                });
-                controller.enqueue(encoder.encode(`data: ${data}\n\n`));
-              }
             }
           }
 
-          // 流结束，保存最终消息
-          if (currentMessageId) {
-            let finalMessage = finishedMessages.find(
-              (m) => m.id === currentMessageId
-            );
-
-            if (!finalMessage) {
-              const parts: ChatMessage["parts"] = [];
-              
-              if (reasoningText) {
-                parts.push({
-                  type: "reasoning",
-                  text: reasoningText,
-                } as any);
-              }
-
-              if (currentText) {
-                parts.push({ type: "text", text: currentText });
-              }
-
-              finalMessage = {
-                id: currentMessageId,
-                role: "assistant",
-                parts: parts.length > 0 ? parts : [],
-              };
-              finishedMessages.push(finalMessage);
-            } else {
-              // 确保最终消息包含所有内容
-              const parts: ChatMessage["parts"] = [];
-              
-              // 先添加推理部分（如果有且还没有）
-              if (reasoningText && !finalMessage.parts.some((p) => p.type === "reasoning")) {
-                parts.push({
-                  type: "reasoning",
-                  text: reasoningText,
-                } as any);
-              } else if (reasoningText) {
-                // 如果已有推理部分，更新它
-                const reasoningIndex = finalMessage.parts.findIndex((p) => p.type === "reasoning");
-                if (reasoningIndex !== -1) {
-                  (finalMessage.parts[reasoningIndex] as any).text = reasoningText;
-                }
-              }
-
-              // 添加文本部分（如果有且还没有）
-              if (currentText && !finalMessage.parts.some((p) => p.type === "text")) {
-                parts.push({ type: "text", text: currentText });
-              } else if (currentText) {
-                // 如果已有文本部分，更新它
-                const textIndex = finalMessage.parts.findIndex((p) => p.type === "text");
-                if (textIndex !== -1) {
-                  (finalMessage.parts[textIndex] as any).text = currentText;
-                }
-              }
-
-              // 保留已有的工具调用部分和其他部分
-              const existingParts = finalMessage.parts.filter(
-                (p) => p.type !== "reasoning" && p.type !== "text"
-              );
-              
-              // 重新构建 parts：推理 -> 文本 -> 工具调用和其他
-              const reasoningParts = finalMessage.parts.filter((p) => p.type === "reasoning");
-              const textParts = finalMessage.parts.filter((p) => p.type === "text");
-              finalMessage.parts = [...reasoningParts, ...textParts, ...existingParts];
+          // 流结束，发送最终消息并保存到数据库
+          if (currentMessageId && currentText) {
+            const parts: ChatMessage["parts"] = [];
+            
+            if (reasoningText) {
+              parts.push({
+                type: "reasoning",
+                text: reasoningText,
+              } as any);
             }
 
-            // 发送最终消息更新，确保 useChat 接收到完整的消息（不使用 transient）
-            console.log('[DEBUG] Sending FINAL message:', {
+            parts.push({ type: "text", text: currentText });
+
+            const finalMessage: ChatMessage = {
+              id: currentMessageId,
+              role: "assistant",
+              parts,
+            };
+            
+            console.log('[DEBUG] Sending final message (non-transient):', {
               messageId: finalMessage.id,
-              role: finalMessage.role,
-              partsCount: finalMessage.parts.length,
-              partsTypes: finalMessage.parts.map(p => p.type)
+              textLength: currentText.length,
             });
+
+            // 发送最终消息（不带 transient）用于持久化
             const finalData = JSON.stringify({
               type: "data-appendMessage",
               data: JSON.stringify(finalMessage),
             });
-            console.log('[DEBUG] Final data string length:', finalData.length);
             controller.enqueue(encoder.encode(`data: ${finalData}\n\n`));
 
-            // 保存消息到数据库
-            if (isToolApprovalFlow) {
-              for (const finishedMsg of finishedMessages) {
-                const existingMsg = uiMessages.find((m) => m.id === finishedMsg.id);
-                if (existingMsg) {
-                  await updateMessage({
-                    id: finishedMsg.id,
-                    parts: finishedMsg.parts,
-                  });
-                } else {
-                  await saveMessages({
-                    messages: [
-                      {
-                        id: finishedMsg.id,
-                        role: finishedMsg.role,
-                        parts: finishedMsg.parts,
-                        createdAt: new Date(),
-                        attachments: [],
-                        chatId: id,
-                      },
-                    ],
-                  });
-                }
-              }
-            } else if (finishedMessages.length > 0) {
-              await saveMessages({
-                messages: finishedMessages.map((currentMessage) => ({
-                  id: currentMessage.id,
-                  role: currentMessage.role,
-                  parts: currentMessage.parts,
-                  createdAt: new Date(),
-                  attachments: [],
-                  chatId: id,
-                })),
-              });
-            }
+            // 保存到数据库
+            await saveMessages({
+              messages: [{
+                id: finalMessage.id,
+                role: finalMessage.role,
+                parts: finalMessage.parts,
+                createdAt: new Date(),
+                attachments: [],
+                chatId: id,
+              }],
+            });
+            
+            console.log('[DEBUG] Message saved to DB successfully');
           }
 
           controller.close();
