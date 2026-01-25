@@ -6,6 +6,7 @@ import { searchSimilarDocuments } from "@/lib/db/queries";
 import type { ChatMessage } from "@/lib/types";
 import { getTextFromMessage, generateUUID } from "@/lib/utils";
 import { cleanQueryText } from "@/lib/utils/text-cleaning";
+import { rewriteQuery } from "./query-rewriter";
 
 type RetrieveContextParams = {
   message: ChatMessage | undefined;
@@ -40,8 +41,21 @@ export async function retrieveRelevantContext({
       const userMessageText = getTextFromMessage(message);
 
       if (userMessageText && userMessageText.trim().length > 0) {
-        // 清理并生成查询的向量嵌入
-        const cleanedQuery = cleanQueryText(userMessageText);
+        // 第一步：使用AI重写和补全查询（提高检索准确性）
+        const { rewrittenQuery, success: rewriteSuccess } = await rewriteQuery({
+          currentQuery: userMessageText,
+          conversationHistory: uiMessages.slice(0, -1), // 不包括当前消息
+          maxHistoryMessages: 5,
+        });
+
+        // 使用重写后的查询（如果失败则使用原始查询）
+        const queryToUse = rewriteSuccess ? rewrittenQuery : userMessageText;
+        console.log(
+          `📝 使用查询: ${queryToUse}${rewriteSuccess ? " (已重写)" : " (原始)"}`
+        );
+
+        // 第二步：清理并生成查询的向量嵌入
+        const cleanedQuery = cleanQueryText(queryToUse);
 
         if (cleanedQuery && cleanedQuery.trim().length > 0) {
           const queryEmbedding = await generateEmbedding(cleanedQuery);
