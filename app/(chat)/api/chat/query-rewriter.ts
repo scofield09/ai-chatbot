@@ -39,21 +39,21 @@ export async function rewriteQuery({
   console.log("原始查询:", currentQuery);
 
   // 如果查询太短（可能需要上下文），或者包含指代词，则进行重写
-  const needsRewriting =
-    currentQuery.length < 15 ||
-    /它|他|她|这个|那个|这里|那里|还有|继续|详细|再说|多说/.test(
-      currentQuery
-    );
+//   const needsRewriting =
+//     currentQuery.length < 15 ||
+//     /它|他|她|这个|那个|这里|那里|还有|继续|详细|再说|多说/.test(
+//       currentQuery
+//     );
 
-  if (!needsRewriting) {
-    console.log("✅ 查询足够清晰，无需重写");
-    console.log("=== 🔄 查询重写结束 ===\n");
-    return {
-      originalQuery: currentQuery,
-      rewrittenQuery: currentQuery,
-      success: true,
-    };
-  }
+//   if (!needsRewriting) {
+//     console.log("✅ 查询足够清晰，无需重写");
+//     console.log("=== 🔄 查询重写结束 ===\n");
+//     return {
+//       originalQuery: currentQuery,
+//       rewrittenQuery: currentQuery,
+//       success: true,
+//     };
+//   }
 
   const apiKey = process.env.ZHIPUAI_API_KEY;
   if (!apiKey) {

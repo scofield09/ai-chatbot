@@ -693,11 +693,22 @@ export async function searchSimilarDocuments({
 
     const embeddingStr = `[${embedding.join(",")}]`;
 
-    // Pure vector similarity search - only calculate distance
-    // No filters to maximize vector index efficiency
+    // Build where conditions for filtering
+    const whereConditions: SQL<unknown>[] = [];
+    
+    // Filter by userId if provided
+    if (userId) {
+      whereConditions.push(eq(documentEmbedding.userId, userId));
+    }
+    
+    // Filter by knowledgeBaseId if provided
+    if (knowledgeBaseId) {
+      whereConditions.push(eq(documentEmbedding.knowledgeBaseId, knowledgeBaseId));
+    }
+
     const candidateLimit = Math.max(limit * 3, 50);
 
-    const candidates = await db
+    const query = db
       .select({
         id: documentEmbedding.id,
         documentId: documentEmbedding.documentId,
@@ -707,10 +718,19 @@ export async function searchSimilarDocuments({
         documentTitle: documentEmbedding.documentTitle,
         userId: documentEmbedding.userId,
       })
-      .from(documentEmbedding)
-      // Use vector index for ordering (this is where the index is most effective)
-      .orderBy(sql`${documentEmbedding.embedding}::vector <=> ${embeddingStr}::vector(1024)`)
-      .limit(candidateLimit);
+      .from(documentEmbedding);
+
+    // Apply where conditions if any
+    const candidates = whereConditions.length > 0
+      ? await query
+          .where(and(...whereConditions))
+          // Use vector index for ordering (this is where the index is most effective)
+          .orderBy(sql`${documentEmbedding.embedding}::vector <=> ${embeddingStr}::vector(1024)`)
+          .limit(candidateLimit)
+      : await query
+          // Use vector index for ordering (this is where the index is most effective)
+          .orderBy(sql`${documentEmbedding.embedding}::vector <=> ${embeddingStr}::vector(1024)`)
+          .limit(candidateLimit);
 
     // Convert distance to similarity and filter by threshold
     // similarity = 1 - distance (for cosine distance)
