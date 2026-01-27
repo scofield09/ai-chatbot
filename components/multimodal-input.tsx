@@ -157,6 +157,8 @@ function PureMultimodalInput({
           url: attachment.url,
           name: attachment.name,
           mediaType: attachment.contentType,
+          // 将 fileId 添加到 file part（如果存在）
+          ...(attachment.fileId ? { fileId: attachment.fileId } : {}),
         })),
         {
           type: "text",

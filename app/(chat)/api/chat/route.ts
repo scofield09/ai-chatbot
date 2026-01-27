@@ -138,6 +138,79 @@ export async function POST(request: Request) {
       });
     }
 
+    // 处理文件附件：从 Redis 获取文件内容并添加到消息上下文
+    if (message?.role === "user" && message.parts && !isToolApprovalFlow) {
+      // 使用 any 类型来绕过严格的类型检查，因为实际运行时可能包含文档文件
+      const fileParts = (message.parts as any[]).filter(
+        (part: any) =>
+          part.type === "file" && 
+          part.fileId && // 只处理有 fileId 的文件（文档类型）
+          (part.mediaType === "application/pdf" || 
+           part.mediaType === "text/plain" || 
+           part.mediaType === "text/markdown")
+      );
+
+      if (fileParts.length > 0) {
+        console.log(`📎 Processing ${fileParts.length} file attachment(s)`);
+
+        const { getFileContent } = await import("@/lib/redis/file-cache");
+        
+        for (const filePart of fileParts) {
+          const fileName = filePart.name as string;
+          const fileId = filePart.fileId as string;
+
+          console.log(`📄 Retrieving file content: ${fileName} (fileId: ${fileId})`);
+
+          try {
+            const fileContent = await getFileContent(fileId);
+
+            if (fileContent) {
+              console.log(`✅ File content retrieved: ${fileContent.length} characters`);
+
+              // 将文件内容作为用户消息插入到对话中
+              const fileContentMessage: ChatMessage = {
+                id: generateUUID(),
+                role: "user",
+                parts: [
+                  {
+                    type: "text",
+                    text: `[附件内容 - ${fileName}]\n\n${fileContent}\n\n[附件结束]`,
+                  },
+                ],
+              };
+
+              // 在当前用户消息之前插入文件内容消息
+              const userMessageIndex = uiMessages.findIndex((m) => m.id === message.id);
+              if (userMessageIndex !== -1) {
+                uiMessages.splice(userMessageIndex, 0, fileContentMessage);
+              } else {
+                // 如果找不到当前消息，插入到最后
+                uiMessages.push(fileContentMessage);
+              }
+
+              console.log(`✅ File content added to message context`);
+            } else {
+              console.log(`⚠️ File content not found in Redis for fileId: ${fileId}`);
+              // 通知用户文件内容已过期
+              const expiredMessage: ChatMessage = {
+                id: generateUUID(),
+                role: "user",
+                parts: [
+                  {
+                    type: "text",
+                    text: `[提示：文件 "${fileName}" 的内容已过期或无法获取，请重新上传]`,
+                  },
+                ],
+              };
+              uiMessages.push(expiredMessage);
+            }
+          } catch (error) {
+            console.error(`❌ Error retrieving file content:`, error);
+          }
+        }
+      }
+    }
+
     // 自动从向量数据库检索相关文档（RAG）
     const { updatedMessages, retrievedDocuments } =
       await retrieveRelevantContext({
@@ -150,7 +223,7 @@ export async function POST(request: Request) {
     // 使用包含检索到的文档上下文的消息
     uiMessages = updatedMessages;
 
-    console.log(uiMessages, updatedMessages, 'uiMessages------------');
+    console.log(uiMessages, 'uiMessages------------');
     console.log(JSON.stringify(uiMessages), 'uiMessages------------');
 
     const isReasoningModel =

@@ -112,12 +112,62 @@ function PureAttachmentsButton({
     const file = event.target.files?.[0];
     if (!file) return;
     
-    // 文件上传功能暂未开放
-    toast.info("文件上传功能开发中，敬请期待");
-    
-    // 清空文件选择
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
+    // 验证文件类型
+    const allowedTypes = ["application/pdf", "text/plain", "text/markdown"];
+    if (!allowedTypes.includes(file.type)) {
+      toast.error("只支持 PDF、TXT、MD 格式");
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+      return;
+    }
+
+    // 验证文件大小（500KB）
+    if (file.size > 500 * 1024) {
+      toast.error("文件大小不能超过 500KB");
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+      return;
+    }
+
+    setIsUploading(true);
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const response = await fetch("/api/files/newUpload", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const { url, pathname, contentType, fileId } = data;
+
+        const attachment = {
+          url,
+          name: pathname,
+          contentType,
+          fileId,
+        };
+
+        onFileUploaded?.(attachment);
+        toast.success("文件上传成功");
+        setOpen(false);
+      } else {
+        const { error } = await response.json();
+        toast.error(error || "上传失败");
+      }
+    } catch (error) {
+      console.error("Error uploading file!", error);
+      toast.error("上传失败，请重试");
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
     }
   };
 
@@ -175,8 +225,54 @@ function PureAttachmentsButton({
         setIsUploading(false);
       }
     } else {
-      // 文件上传功能暂未开放
-      toast.info("文件上传功能开发中，敬请期待");
+      // 验证文件类型
+      const allowedTypes = ["application/pdf", "text/plain", "text/markdown"];
+      if (!allowedTypes.includes(file.type)) {
+        toast.error("只支持 PDF、TXT、MD 格式");
+        return;
+      }
+
+      // 验证文件大小（500KB）
+      if (file.size > 500 * 1024) {
+        toast.error("文件大小不能超过 500KB");
+        return;
+      }
+
+      setIsUploading(true);
+
+      const formData = new FormData();
+      formData.append("file", file);
+
+      try {
+        const response = await fetch("/api/files/newUpload", {
+          method: "POST",
+          body: formData,
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          const { url, pathname, contentType, fileId } = data;
+
+          const attachment = {
+            url,
+            name: pathname,
+            contentType,
+            fileId,
+          };
+
+          onFileUploaded?.(attachment);
+          toast.success("文件上传成功");
+          setOpen(false);
+        } else {
+          const { error } = await response.json();
+          toast.error(error || "上传失败");
+        }
+      } catch (error) {
+        console.error("Error uploading file!", error);
+        toast.error("上传失败，请重试");
+      } finally {
+        setIsUploading(false);
+      }
     }
   };
 
@@ -257,7 +353,7 @@ function PureAttachmentsButton({
                     <p className="text-xs text-muted-foreground">
                       {activeTab === "image"
                         ? "JPEG, PNG (最大 5MB)"
-                        : "PDF, TXT, MD (最大 5MB)"}
+                        : "PDF, TXT, MD (最大 500KB)"}
                     </p>
                   </>
                 )}

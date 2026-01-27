@@ -54,4 +54,5 @@ export type Attachment = {
   name: string;
   url: string;
   contentType: string;
+  fileId?: string; // 文件上传时 Redis 中的唯一标识
 };
