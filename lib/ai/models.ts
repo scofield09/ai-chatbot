@@ -75,18 +75,18 @@ export const chatModels: ChatModel[] = [
     description: "Fast with 30K context",
   },
   // Reasoning models (extended thinking)
-  {
-    id: "anthropic/claude-3.7-sonnet-thinking",
-    name: "Claude 3.7 Sonnet",
-    provider: "reasoning",
-    description: "Extended thinking for complex problems",
-  },
-  {
-    id: "xai/grok-code-fast-1-thinking",
-    name: "Grok Code Fast",
-    provider: "reasoning",
-    description: "Reasoning optimized for code",
-  },
+  // {
+  //   id: "anthropic/claude-3.7-sonnet-thinking",
+  //   name: "Claude 3.7 Sonnet",
+  //   provider: "reasoning",
+  //   description: "Extended thinking for complex problems",
+  // },
+  // {
+  //   id: "xai/grok-code-fast-1-thinking",
+  //   name: "Grok Code Fast",
+  //   provider: "reasoning",
+  //   description: "Reasoning optimized for code",
+  // },
 ];
 
 // Group models by provider for UI

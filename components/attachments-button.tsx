@@ -35,8 +35,9 @@ function PureAttachmentsButton({
   const imageInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
-  const isReasoningModel =
-    selectedModelId.includes("reasoning") || selectedModelId.includes("think");
+  // const isReasoningModel =
+  //   selectedModelId.includes("reasoning") || selectedModelId.includes("think");
+  const isReasoningModel = selectedModelId.includes("think");
 
   const uploadFile = async (file: File) => {
     const formData = new FormData();
