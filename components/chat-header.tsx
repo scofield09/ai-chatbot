@@ -42,13 +42,13 @@ function PureChatHeader({
         </Button>
       )}
 
-      {/* {!isReadonly && (
+      {!isReadonly && (
         <VisibilitySelector
           chatId={chatId}
           className="order-1 md:order-2"
           selectedVisibilityType={selectedVisibilityType}
         />
-      )} */}
+      )}
 
       {/* <Button
         asChild
